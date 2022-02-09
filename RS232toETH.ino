@@ -1,4 +1,4 @@
-//обрезка фрейма при замыкании шлейфа до 64 байт
+//улучшить стабильность!
 //
 
 
@@ -6,9 +6,9 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <avr/eeprom.h>
+#include <GyverWDT.h>
 #define W5500_ETHERNET_SHIELD
-#define BUFFER_LENGTH 128
-byte dataBuffer[BUFFER_LENGTH];
+
 
 byte ipBox[] = { 192, 168, 2, 111};
 byte mac[] = { 31, 33, 73, 13, 37, 11};
@@ -34,16 +34,18 @@ long  portsList[] = {
 
 int baudRate = 0; // ид из бод листа
 bool settingsModFlag = false; // флаг для перехода в режим настройки
-void(* resetMCU) (void) = 0; // resetMCU(); програмный ресет 
 
+void(* resetFunc) (void) = 0;
 
 void setup() {
   readEEPROM();
   pinMode(5,OUTPUT); // перезагрузка сетевой карты 
+  pinMode(4,OUTPUT);
+  digitalWrite(4, HIGH);
   digitalWrite(5, HIGH);
   pinMode(6,INPUT); // джампер для прехода в режим отладки 
-
   uart.begin(baudRateList[5]); // тестовый порт 
+ // Watchdog.enable(RESET_MODE, WDT_PRESCALER_512);
 }
 
 void loop() {
@@ -63,9 +65,11 @@ void genaralMod(){
 
   while(true){
     EthernetClient client = server.available(); // ожидаем подключения  
+   // Watchdog.reset(); 
     if (client) { // принимаем запрос на подключение TCP клиента
       while (client.connected()){ // пока клиент подключён
-        point: 
+        pointOne:
+        //Watchdog.reset();  
         while (int numBytes = uart.available()){ // ЕСЛИ ПРИШЛИ ДАННЫЕ ПО COM 
           byte buferBytes[numBytes]; 
           for(int i = 0; i < numBytes; i ++){
@@ -79,17 +83,33 @@ void genaralMod(){
           for(int i = 0; i < numBytes; i ++){
             uart.write((byte)client.read());
             if(uart.available() > 60){
-              goto point; // защита от переполнения буфера последовательного порта
+              goto pointOne; // защита от переполнения буфера последовательного порта
             }
           }
-        }  
+        }
       }
-      client.stop(); // закрываем соединение
     }else{
-      
+      if(ethWatcherStatus(15000)){
+        client.stop();
+        digitalWrite(4, LOW);
+      }
     }
   }
 }
+
+bool ethWatcherStatus(int timer){
+  static unsigned long t = 0;
+  static bool flag = false;
+  if(!flag){
+    flag = true;
+    t = millis();
+  }else if((millis() - t) > timer){
+    return true;
+    flag = false;
+  }
+  return false;
+}
+
 
 void ethRestart(){
  digitalWrite(5, LOW);
