@@ -1,13 +1,16 @@
+//обрезка фрейма при замыкании шлейфа до 64 байт
+//
+
+
+
 #include <SPI.h>
 #include <Ethernet.h>
 #include <avr/eeprom.h>
 #define W5500_ETHERNET_SHIELD
 #define BUFFER_LENGTH 128
 byte dataBuffer[BUFFER_LENGTH];
-#include <SoftwareSerial.h>
-SoftwareSerial serial2(8,9);
 
-byte ipBox[] = { 192, 168, 2, 100};
+byte ipBox[] = { 192, 168, 2, 111};
 byte mac[] = { 31, 33, 73, 13, 37, 11};
 int port = 0; 
 String programVer = "1.0.0";
@@ -28,6 +31,7 @@ long  portsList[] = {
  1804   //3
 };
 
+
 int baudRate = 0; // ид из бод листа
 bool settingsModFlag = false; // флаг для перехода в режим настройки
 void(* resetMCU) (void) = 0; // resetMCU(); програмный ресет 
@@ -39,19 +43,12 @@ void setup() {
   digitalWrite(5, HIGH);
   pinMode(6,INPUT); // джампер для прехода в режим отладки 
 
-  Serial.begin(baudRateList[0]); // тестовый порт 
-  if(settingsModFlag){
-    Serial1.begin(baudRateList[0]);
-  }else{
-    Serial1.begin(baudRateList[baudRate]);
-    Serial1.setTimeout(1);
-    //serial2.begin(38400);
-  }
+  uart.begin(baudRateList[5]); // тестовый порт 
 }
 
 void loop() {
   if(settingsModFlag){
-    settingsMod();
+   // settingsMod();
   }else{
     genaralMod();
   }
@@ -67,26 +64,37 @@ void genaralMod(){
   while(true){
     EthernetClient client = server.available(); // ожидаем подключения  
     if (client) { // принимаем запрос на подключение TCP клиента
-      while (client.connected()){ // пока клиент подключён 
-        while (Serial1.available()){ // ЕСЛИ ПРИШЛИ ДАННЫЕ ПО COM
-          int dataLength = Serial1.readBytes(dataBuffer, BUFFER_LENGTH);
-          client.write(dataBuffer, dataLength);
-        }        
-        while (client.available()){// ЕСЛИ ПРИШЛИ ДАННЫЕ ПО TCP:
-          byte c = client.read();
-          Serial1.write(c);
-        }   
-      }    
+      while (client.connected()){ // пока клиент подключён
+        point: 
+        while (int numBytes = uart.available()){ // ЕСЛИ ПРИШЛИ ДАННЫЕ ПО COM 
+          byte buferBytes[numBytes]; 
+          for(int i = 0; i < numBytes; i ++){
+              buferBytes[i] = (byte)uart.read();
+          }
+          client.write(buferBytes, numBytes);
+        }  
+             
+        while (int numBytes = client.available()){// ЕСЛИ ПРИШЛИ ДАННЫЕ ПО TCP:
+          byte buferBytes[numBytes]; 
+          for(int i = 0; i < numBytes; i ++){
+            uart.write((byte)client.read());
+            if(uart.available() > 60){
+              goto point; // защита от переполнения буфера последовательного порта
+            }
+          }
+        }  
+      }
       client.stop(); // закрываем соединение
     }else{
-      timerReset(5000);
+      
     }
   }
 }
 
 void ethRestart(){
  digitalWrite(5, LOW);
- delay(500);
+ delay(1000);
+ digitalWrite(5, HIGH);
 } 
 
 void timerReset(long timer){
